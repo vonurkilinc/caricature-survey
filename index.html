@@ -1,0 +1,615 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Caricature Comparison Study</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.3/css/jspsych.css" />
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      --max-width: 960px;
+      --primary: #1f4f9c;
+      --primary-dark: #173d78;
+      --surface: #ffffff;
+      --surface-alt: #f4f6fb;
+      --border: #d8deeb;
+      --text: #1f2430;
+      --muted: #5b6577;
+      --danger: #b00020;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(180deg, #f6f8fc 0%, #eef2fa 40%, #f7f9ff 100%);
+      color: var(--text);
+    }
+
+    #experiment {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .panel {
+      background: var(--surface);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 40px -24px rgba(22, 38, 66, 0.45);
+      padding: 32px;
+      margin: 0 auto;
+      max-width: 820px;
+      line-height: 1.6;
+    }
+
+    .panel h1,
+    .panel h2 {
+      margin-top: 0;
+      color: var(--primary-dark);
+    }
+
+    .panel__meta {
+      font-size: 0.95rem;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    .jspsych-btn,
+    button.primary-btn,
+    button.secondary-btn {
+      font-family: inherit;
+      font-size: 1rem;
+      padding: 12px 24px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .jspsych-btn,
+    button.primary-btn {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 10px 24px -16px rgba(31, 79, 156, 0.7);
+    }
+
+    .jspsych-btn:hover,
+    button.primary-btn:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 18px 32px -20px rgba(31, 79, 156, 0.75);
+    }
+
+    button.secondary-btn {
+      background: transparent;
+      color: var(--primary-dark);
+      border: 1px solid var(--primary);
+    }
+
+    button.secondary-btn:hover {
+      background: rgba(31, 79, 156, 0.08);
+    }
+
+    .stimulus-card {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .stimulus-card__meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+      color: var(--primary-dark);
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .stimulus-card__image {
+      position: relative;
+      text-align: center;
+    }
+
+    .stimulus-card__img {
+      max-width: min(100%, 480px);
+      width: 100%;
+      height: 320px;
+      object-fit: contain;
+      border-radius: 14px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      box-shadow: 0 10px 26px -24px rgba(16, 33, 56, 0.9);
+      cursor: zoom-in;
+    }
+    .question-stack {
+      display: grid;
+      gap: 24px;
+      margin-top: 24px;
+    }
+    .question-block {
+      display: grid;
+      gap: 12px;
+    }
+    .question-prompt {
+      margin: 0;
+      font-weight: 600;
+      color: var(--primary-dark);
+    }
+    .rating-scale {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    .rating-option {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 72px;
+      text-align: center;
+      gap: 6px;
+    }
+    .rating-option input[type="radio"] {
+      margin-bottom: 2px;
+    }
+    .rating-option label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+    .slider-wrapper {
+      display: grid;
+      gap: 12px;
+    }
+    .slider-wrapper input[type="range"] {
+      width: 100%;
+      accent-color: var(--primary);
+    }
+    .slider-value {
+      text-align: center;
+      font-weight: 600;
+      color: var(--primary);
+    }
+    .slider-ticks {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .stimulus-comparison {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      align-items: start;
+      margin-bottom: 18px;
+    }
+    .stimulus-card--primary,
+    .reference-card {
+      height: 100%;
+    }
+    .reference-card .stimulus-card__meta {
+      justify-content: center;
+    }
+    .stimulus-card__img--reference {
+      height: 260px;
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 12px;
+    }
+    .comparison-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-alt);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+      text-align: center;
+    }
+    .comparison-card__image img {
+      width: 100%;
+      max-width: 200px;
+      height: 160px;
+      border-radius: 10px;
+      object-fit: contain;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      cursor: zoom-in;
+    }
+    .comparison-card__label {
+      font-weight: 600;
+      color: var(--primary-dark);
+    }
+    .comparison-card__variant {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .zoom-trigger {
+      margin-top: 12px;
+      padding: 8px 18px;
+      border-radius: 999px;
+      border: 1px solid var(--primary);
+      background: rgba(31, 79, 156, 0.08);
+      color: var(--primary-dark);
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .zoom-trigger:hover {
+      background: rgba(31, 79, 156, 0.18);
+    }
+
+    .guard {
+      position: fixed;
+      inset: 0;
+      background: rgba(14, 24, 46, 0.92);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+      z-index: 1000;
+      text-align: center;
+    }
+
+    .guard__content {
+      max-width: 520px;
+    }
+
+    .guard h1 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 2rem;
+    }
+
+    .guard p {
+      margin-bottom: 0;
+      color: rgba(255, 255, 255, 0.85);
+      line-height: 1.7;
+    }
+
+    .loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      background: rgba(246, 248, 252, 0.9);
+      z-index: 900;
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .loading__spinner {
+      width: 52px;
+      height: 52px;
+      border: 6px solid rgba(31, 79, 156, 0.15);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .quit {
+      position: fixed;
+      top: 18px;
+      right: 24px;
+      z-index: 950;
+    }
+
+    .quit button {
+      padding: 10px 18px;
+      font-size: 0.95rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--danger);
+      cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .quit button:hover {
+      background: #ffeef1;
+      color: #8b001a;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 24, 40, 0.78);
+      z-index: 1100;
+      padding: 40px 24px;
+    }
+
+    .modal__content {
+      position: relative;
+      max-width: min(1024px, 90vw);
+      max-height: 90vh;
+      background: #fff;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.55);
+    }
+
+    .modal__content img {
+      display: block;
+      max-width: 100%;
+      max-height: calc(90vh - 60px);
+      border-radius: 12px;
+    }
+
+    .modal__close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.65);
+      color: #fff;
+      border: none;
+      font-size: 1.5rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .modal__close:hover {
+      background: rgba(0, 0, 0, 0.75);
+    }
+
+    .attention-banner {
+      padding: 12px 16px;
+      border-left: 4px solid var(--primary);
+      background: rgba(31, 79, 156, 0.08);
+      border-radius: 12px;
+      margin-bottom: 24px;
+      color: var(--primary-dark);
+    }
+
+    .download-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin: 24px 0;
+    }
+
+    .download-grid button {
+      width: 100%;
+      justify-self: stretch;
+    }
+
+    .mask-map {
+      margin-top: 32px;
+      padding: 20px;
+      border-radius: 14px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      font-family: "Roboto Mono", "Source Code Pro", Menlo, Consolas, monospace;
+      font-size: 0.92rem;
+      white-space: pre-wrap;
+    }
+
+    .error-text {
+      color: var(--danger);
+      font-weight: 600;
+      margin-top: 12px;
+    }
+
+    .forced-rank {
+      display: grid;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .forced-rank label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-weight: 600;
+      color: var(--primary-dark);
+    }
+
+    .forced-rank select,
+    .forced-rank textarea,
+    .panel select,
+    .panel textarea,
+    .panel input[type="text"],
+    .panel input[type="number"] {
+      font-family: inherit;
+      font-size: 1rem;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .forced-rank select:focus,
+    .panel textarea:focus,
+    .panel input[type="text"]:focus,
+    .panel input[type="number"]:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(31, 79, 156, 0.2);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 96px;
+    }
+    .demographic-grid {
+      display: grid;
+      gap: 18px;
+      margin-top: 24px;
+    }
+    .demographic-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ranking-board {
+      display: grid;
+      gap: 18px;
+      margin-top: 16px;
+    }
+    .ranking-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 12px;
+    }
+    .ranking-item {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: grab;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .ranking-item:active {
+      cursor: grabbing;
+    }
+    .ranking-item__image img {
+      width: 64px;
+      height: 64px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .ranking-item.dragging {
+      opacity: 0.6;
+      transform: scale(0.98);
+      box-shadow: 0 12px 30px -24px rgba(0, 0, 0, 0.4);
+    }
+    .ranking-item__meta {
+      display: grid;
+      gap: 4px;
+      text-align: left;
+    }
+    .ranking-item__meta strong {
+      color: var(--primary-dark);
+    }
+
+    .obvious-pair {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      margin: 24px 0;
+    }
+
+    .obvious-pair__card {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .obvious-pair__card img {
+      max-width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      cursor: zoom-in;
+    }
+
+    .obvious-pair__choice {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 600;
+      color: var(--primary-dark);
+    }
+
+    .summary-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(31, 79, 156, 0.1);
+      color: var(--primary-dark);
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .summary-status--warning {
+      background: rgba(255, 196, 0, 0.18);
+      color: #8a6100;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport-guard" class="guard hidden" role="status" aria-live="assertive">
+    <div class="guard__content">
+      <h1>Desktop/Laptop Required</h1>
+      <p>This study must be completed on a desktop or laptop screen that is at least 1024 pixels wide. Please resize your window or switch devices and refresh when ready.</p>
+    </div>
+  </div>
+
+  <div id="loading-screen" class="loading" role="status" aria-live="polite">
+    <div class="loading__spinner" aria-hidden="true"></div>
+    <p>Loading stimuli and preparing the study...</p>
+    <p style="font-size: 0.9rem; color: #7a8294;">If this page is opened directly from your file system, run <code>python -m http.server</code> in the <code>caricature-survey</code> folder and reload.</p>
+  </div>
+
+  <div id="quit-container" class="quit hidden">
+    <button id="quit-button" type="button" aria-label="Quit the study early">Quit Study</button>
+  </div>
+
+  <div id="experiment" aria-live="polite"></div>
+
+  <div id="zoom-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Image zoom viewer">
+    <div class="modal__content">
+      <button id="modal-close" class="modal__close" type="button" aria-label="Close zoomed image">&times;</button>
+      <img id="modal-image" src="" alt="Zoomed caricature" />
+    </div>
+  </div>
+  <script src="https://unpkg.com/jspsych@7.3.3/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-preload@2.1.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-instructions@2.1.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey@3.0.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-multi-choice@2.1.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0/dist/index.browser.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
+
+
+
