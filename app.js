@@ -1940,12 +1940,32 @@
     };
   }
   function buildDataExports(exitReason) {
-    const data = jsPsychInstance.data;
-    const ratingTrials = data.filter({ trial_category: 'caricature_rating' }).values();
-    const comparativeTrials = data.filter({ trial_category: 'comparative_choices' }).values();
-    const rankingTrials = data.filter({ trial_category: 'comparative_rank' }).values();
-    const attentionTrials = data.filter({ trial_category: 'attention_check' }).values();
-    const demographicsTrial = data
+    const dataModule = jsPsychInstance?.data;
+    const dataCollection =
+      typeof dataModule?.get === 'function' ? dataModule.get() : dataModule;
+    if (!dataCollection || typeof dataCollection.filter !== 'function') {
+      console.warn('jsPsych data collection unavailable; returning empty exports.');
+    }
+    const collection =
+      dataCollection && typeof dataCollection.filter === 'function'
+        ? dataCollection
+        : {
+            filter: () => ({ values: () => [] }),
+            values: () => []
+          };
+    const ratingTrials = collection
+      .filter({ trial_category: 'caricature_rating' })
+      .values();
+    const comparativeTrials = collection
+      .filter({ trial_category: 'comparative_choices' })
+      .values();
+    const rankingTrials = collection
+      .filter({ trial_category: 'comparative_rank' })
+      .values();
+    const attentionTrials = collection
+      .filter({ trial_category: 'attention_check' })
+      .values();
+    const demographicsTrial = collection
       .filter({ trial_category: 'demographics' })
       .values()
       .slice(-1)[0] || null;
@@ -2055,7 +2075,7 @@
         ranking_responses: rankingRows,
         attention_checks: attentionRows,
         demographics,
-        raw_trials: data.values()
+        raw_trials: collection.values()
       },
       null,
       2
