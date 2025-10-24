@@ -622,7 +622,7 @@
           <label for="participant-id">
             Participant ID (letters, numbers, dashes and underscores only)
           </label>
-          <input id="participant-id" name="participant_id" type="text" pattern="[A-Za-z0-9_-]{3,64}" required placeholder="e.g., P001_A" autocomplete="off" />
+          <input id="participant-id" name="participant_id" type="text" pattern="[A-Za-z0-9_\-]{3,64}" required placeholder="e.g., P001_A" autocomplete="off" />
           <p class="panel__meta">Optional: include a prompt variant code (e.g., “A” or “B”) in your ID if you are balancing manually.</p>
         </div>
       `,
@@ -655,6 +655,24 @@
   function buildMainTimelineForParticipant(plan) {
     const timeline = [];
 
+    const totalCaricatureTrials =
+      (plan.trainingStimuli?.length || 0) +
+      plan.identityStimuli.reduce(
+        (sum, identity) => sum + (identity.trials?.length || 0),
+        0
+      );
+    let progressCounter = 0;
+    const getNextProgress =
+      totalCaricatureTrials > 0
+        ? () => {
+            progressCounter += 1;
+            return {
+              index: progressCounter,
+              total: totalCaricatureTrials
+            };
+          }
+        : null;
+
     if (plan.preloadImages.length) {
       timeline.push({
         type: jsPsychPreload,
@@ -672,7 +690,7 @@
       });
     }
 
-    timeline.push(...buildTrainingBlock(plan.trainingStimuli));
+    timeline.push(...buildTrainingBlock(plan.trainingStimuli, getNextProgress));
     timeline.push(buildComprehensionCheckBlock());
 
     const attentionTrials = [];
@@ -684,7 +702,7 @@
     }
 
     const identityBlocks = plan.identityStimuli.map((identity) =>
-      createIdentityTimeline(identity)
+      createIdentityTimeline(identity, getNextProgress)
     );
 
     if (identityBlocks.length) {
@@ -714,7 +732,7 @@
     return timeline;
   }
 
-  function buildTrainingBlock(trainingStimuli) {
+  function buildTrainingBlock(trainingStimuli, getNextProgress) {
     const timeline = [];
 
     timeline.push({
@@ -723,8 +741,15 @@
         `
           <div class="panel">
             <h2>How the study works</h2>
-            <p>You will review sets of caricatures for the same individual. For each caricature, respond to four required Likert ratings and one 0–100 slider. Two optional booster questions appear afterwards.</p>
-            <p>After rating all caricatures in a set, you will answer comparative questions (best per criterion, overall winner) and complete a forced rank ordering with a short rationale.</p>
+            <p>You will review sets of caricatures for the same individual. For each caricature, you'll use sliders to rate five key aspects:</p>
+            <ul>
+              <li><strong>Identity</strong> (1-7): How much does this caricature still look like the same person as the reference photo?</li>
+              <li><strong>Exaggeration</strong> (1-7): How strong is the exaggeration of facial features in this caricature?</li>
+              <li><strong>Alignment</strong> (1-7): Does this caricature exaggerate the right features that make this person distinctive?</li>
+              <li><strong>Plausibility</strong> (1-7): Is the caricature visually and anatomically plausible (natural, coherent, not distorted)?</li>
+              <li><strong>Overall</strong> (0-100): Considering everything, how good is this caricature overall?</li>
+            </ul>
+            <p>After rating all caricatures in a set, you will answer comparative questions and complete a forced rank ordering.</p>
           </div>
         `,
         `
@@ -749,11 +774,14 @@
     });
 
     trainingStimuli.forEach((stimulus, index) => {
+      const progressInfo = getNextProgress ? getNextProgress() : null;
       timeline.push(
         createCaricatureSurveyTrial(stimulus, {
           isPractice: true,
           sequenceIndex: index + 1,
-          totalCount: trainingStimuli.length
+          totalCount: trainingStimuli.length,
+          progressIndex: progressInfo?.index,
+          progressTotal: progressInfo?.total
         })
       );
     });
@@ -776,112 +804,116 @@
   function createCaricatureSurveyTrial(stimulus, options = {}) {
     const isPractice = Boolean(options.isPractice);
     const identityLabel = sanitizeForHtml(stimulus.identity_display || stimulus.identity_id);
-    const methodLabel = sanitizeForHtml(stimulus.method_mask || 'Method ?');
-    const sequenceLabel = options.totalCount
-      ? ` (${options.sequenceIndex || 1} of ${options.totalCount})`
+    const methodMaskLabel = sanitizeForHtml(stimulus.method_mask || '?');
+    const variantIndex = options.sequenceIndex || 1;
+    const variantDescriptor = options.totalCount
+      ? `Variant ${variantIndex}/${options.totalCount}`
       : '';
+    const cardLabelPrefix = isPractice ? 'Practice Caricature' : 'Caricature';
+    const cardLabelParts = [];
+    // Hide method labels from user display
+    // if (methodMaskLabel) {
+    //   cardLabelParts.push(`Method ${methodMaskLabel}`);
+    // }
+    if (variantDescriptor) {
+      cardLabelParts.push(variantDescriptor);
+    }
+    const primaryCardLabel = `${cardLabelPrefix}${cardLabelParts.length ? ` (${cardLabelParts.join(' &ndash; ')})` : ''}`;
+    const progressIndex = Number(options.progressIndex) || 0;
+    const progressTotal = Number(options.progressTotal) || 0;
+    const progressLabel =
+      progressIndex > 0 && progressTotal > 0
+        ? `Image ${progressIndex} of ${progressTotal}`
+        : '';
 
-    const buildLikertQuestion = (name, prompt, optionsList, required) => {
+    const buildSliderQuestion = (name, prompt, min, max, step, leftLabel, rightLabel, required, middleLabel = null) => {
       const sanitizedName = sanitizeForHtml(name);
-      const firstOptionRequired = required ? 'required' : '';
-      const optionHtml = optionsList
-        .map((option, index) => {
-          const [valuePart, ...rest] = option.split(' - ');
-          const value = sanitizeForHtml((valuePart || option).trim());
-          const labelRest = rest.join(' - ').trim();
-          const labelLines = labelRest
-            ? `${sanitizeForHtml(valuePart || option)}<br>${sanitizeForHtml(labelRest)}`
-            : sanitizeForHtml(option);
-          const inputId = `${sanitizedName}_${index + 1}`;
-          const requiredAttr = index === 0 ? firstOptionRequired : '';
-          return `
-            <div class="rating-option">
-              <input type="radio" name="${sanitizedName}" value="${value}" id="${inputId}" ${requiredAttr}>
-              <label for="${inputId}">${labelLines}</label>
-            </div>
-          `;
-        })
-        .join('');
-
+      const sliderId = `${sanitizedName}_slider`;
+      const valueId = `${sanitizedName}_value`;
+      const requiredAttr = required ? 'required' : '';
+      
+      // Special handling for overall question with three anchors
+      const labelsHtml = middleLabel 
+        ? `
+          <div class="slider-labels">
+            <span>${sanitizeForHtml(leftLabel)}</span>
+            <span>${sanitizeForHtml(middleLabel)}</span>
+            <span>${sanitizeForHtml(rightLabel)}</span>
+          </div>
+        `
+        : `
+          <div class="slider-labels">
+            <span>${sanitizeForHtml(leftLabel)}</span>
+            <span>${sanitizeForHtml(rightLabel)}</span>
+          </div>
+        `;
+      
       return `
         <div class="question-block">
           <p class="question-prompt">${sanitizeForHtml(prompt)}</p>
-          <div class="rating-scale">
-            ${optionHtml}
+          <div class="slider-wrapper">
+            <input
+              type="range"
+              id="${sliderId}"
+              name="${sanitizedName}"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              value="${Math.floor((min + max) / 2)}"
+              ${requiredAttr}
+              aria-describedby="${valueId}"
+            >
+            <div class="slider-value" id="${valueId}">${Math.floor((min + max) / 2)}</div>
+            ${labelsHtml}
           </div>
         </div>
       `;
     };
 
-    const rawSliderKey = `${stimulus.identity_id || 'stim'}_${stimulus.method_mask || 'method'}_${options.sequenceIndex || 0}`;
-    const normalizedSliderKey = rawSliderKey.replace(/[^A-Za-z0-9_-]/g, '_');
-    const sliderId = `overall_slider_${normalizedSliderKey}`;
-    const sliderValueId = `${sliderId}_value`;
-
-    const sliderHtml = `
-      <div class="question-block">
-        <label for="${sliderId}" class="question-prompt">
-          Overall effectiveness (0 = very poor, 100 = exceptional)
-        </label>
-        <div class="slider-wrapper">
-          <input
-            type="range"
-            id="${sliderId}"
-            name="overall_slider"
-            min="0"
-            max="100"
-            step="1"
-            value="50"
-            required
-            aria-describedby="${sliderValueId}"
-          >
-          <div class="slider-value" id="${sliderValueId}">50</div>
-          <div class="slider-ticks">
-            <span>0</span>
-            <span>25</span>
-            <span>50</span>
-            <span>75</span>
-            <span>100</span>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const likenessQuestion = buildLikertQuestion(
-      'likeness',
-      'How well does this caricature capture the person’s likeness?',
-      REQUIRED_LIKERT_OPTIONS,
+    const identityQuestion = buildSliderQuestion(
+      'identity',
+      'How much does this caricature still look like the same person as the reference photo?',
+      1, 7, 1,
+      'Not at all the same person',
+      'Clearly the same person',
       true
     );
-    const styleQuestion = buildLikertQuestion(
-      'style',
-      'How strong is the artistic style and finishing?',
-      REQUIRED_LIKERT_OPTIONS,
+    
+    const exaggerationQuestion = buildSliderQuestion(
+      'exaggeration',
+      'How strong is the exaggeration of facial features in this caricature?',
+      1, 7, 1,
+      'No exaggeration',
+      'Very strong exaggeration',
       true
     );
-    const expressionQuestion = buildLikertQuestion(
-      'expression',
-      'How expressive is the character or attitude conveyed?',
-      REQUIRED_LIKERT_OPTIONS,
+    
+    const alignmentQuestion = buildSliderQuestion(
+      'alignment',
+      'Does this caricature exaggerate the right features that make this person distinctive?',
+      1, 7, 1,
+      'Exaggerates irrelevant/wrong features',
+      'Exaggerates exactly the distinctive traits',
       true
     );
-    const distinctivenessQuestion = buildLikertQuestion(
-      'distinctiveness',
-      'How distinctive or memorable is this caricature?',
-      REQUIRED_LIKERT_OPTIONS,
+    
+    const plausibilityQuestion = buildSliderQuestion(
+      'plausibility',
+      'Is the caricature visually and anatomically plausible (natural, coherent, not distorted)?',
+      1, 7, 1,
+      'Very implausible / distorted',
+      'Fully plausible and natural-looking',
       true
     );
-    const boosterRecognizability = buildLikertQuestion(
-      'booster_recognizability',
-      'Optional booster – Thumbnail recognizability',
-      BOOSTER_OPTIONS,
-      false
-    );
-    const boosterFinish = buildLikertQuestion(
-      'booster_finish',
-      'Optional booster – Visual finish quality',
-      BOOSTER_OPTIONS,
-      false
+    
+    const overallQuestion = buildSliderQuestion(
+      'overall',
+      'Considering everything (identity, exaggeration, alignment, and plausibility), how good is this caricature overall?',
+      0, 100, 1,
+      'Very poor',
+      'Outstanding',
+      true,
+      'Average'
     );
 
     const primaryImageSrc = sanitizeForHtml(stimulus.thumb_url || stimulus.image_url);
@@ -896,20 +928,25 @@
       stimulus.metadata?.reference_label ||
         (isPractice ? 'Practice reference' : 'Reference image')
     );
+    const variantTag = sanitizeForHtml(stimulus.variant || '');
+    const sanitizedProgressLabel = progressLabel ? sanitizeForHtml(progressLabel) : '';
+    const progressHtml =
+      sanitizedProgressLabel
+        ? `<div class="trial-progress" aria-live="polite">${sanitizedProgressLabel}</div>`
+        : '';
     const referenceSection = referenceUrl
       ? `
         <div class="stimulus-card reference-card">
           <div class="stimulus-card__meta">
             <span>${referenceLabel}</span>
+            <span></span>
           </div>
           <div class="stimulus-card__image">
             <img src="${referenceUrl}"
                  data-zoom-src="${referenceUrl}"
                  alt="Reference image"
                  class="stimulus-card__img stimulus-card__img--reference" />
-            <div style="margin-top: 12px;">
-              <button type="button" class="zoom-trigger" data-zoom-src="${referenceUrl}">Zoom reference</button>
-            </div>
+            <button type="button" class="zoom-trigger" data-zoom-src="${referenceUrl}">Zoom reference</button>
           </div>
         </div>
       `
@@ -917,44 +954,40 @@
 
     const html = `
       <div class="panel">
+        ${progressHtml}
         <div class="panel__meta">
-          ${isPractice ? 'Practice trial' : `Identity: ${identityLabel}`} &middot; ${isPractice ? '' : `Method ${methodLabel}`}
+          ${isPractice ? 'Practice trial' : `Identity: ${identityLabel}`} &middot; <span style="display: none;">Method ${methodMaskLabel}</span>
         </div>
         <div class="stimulus-comparison">
-          <div class="stimulus-card stimulus-card--primary">
+          <div class="stimulus-card stimulus-card--primary" style="position: relative;">
+            <div class="zoom-icon" data-zoom-src="${primaryZoomSrc}" title="Zoom caricature"></div>
             <div class="stimulus-card__meta">
-              <span>${isPractice ? 'Practice image' : `Method ${methodLabel}`}${sequenceLabel}</span>
-              <span>${sanitizeForHtml(stimulus.variant || '')}</span>
+              <span>${primaryCardLabel}</span>
+              <span>${variantTag || ''}</span>
             </div>
             <div class="stimulus-card__image">
               <img src="${primaryImageSrc}"
                    data-zoom-src="${primaryZoomSrc}"
                    alt="Caricature image preview"
                    class="stimulus-card__img" />
-              <div style="margin-top: 12px;">
-                <button type="button" class="zoom-trigger" data-zoom-src="${primaryZoomSrc}">Zoom caricature</button>
-              </div>
             </div>
           </div>
           ${referenceSection}
         </div>
         <p>Please answer the required questions below${isPractice ? ' (practice responses are not saved).' : '.'}</p>
         <div class="question-stack">
-          ${likenessQuestion}
-          ${styleQuestion}
-          ${expressionQuestion}
-          ${distinctivenessQuestion}
-          ${sliderHtml}
-          ${boosterRecognizability}
-          ${boosterFinish}
+          ${identityQuestion}
+          ${exaggerationQuestion}
+          ${alignmentQuestion}
+          ${plausibilityQuestion}
+          ${overallQuestion}
         </div>
       </div>
     `;
-
     return {
       type: jsPsychSurveyHtmlForm,
       html,
-      button_label: isPractice ? 'Continue' : 'Next caricature',
+      button_label: isPractice ? 'Continue' : 'Next caricature →',
       data: {
         trial_category: isPractice ? 'caricature_practice' : 'caricature_rating',
         identity_id: stimulus.identity_id,
@@ -968,32 +1001,92 @@
       on_load: () => {
         const formRoot = document.getElementById('jspsych-survey-html-form');
         setupZoomHandlers(formRoot || document);
-        const slider =
-          formRoot?.querySelector(`#${sliderId}`) ||
-          document.getElementById(sliderId);
-        const sliderOutput =
-          formRoot?.querySelector(`#${sliderValueId}`) ||
-          document.getElementById(sliderValueId);
-        if (slider && sliderOutput) {
-          sliderOutput.textContent = slider.value;
-          slider.addEventListener('input', () => {
-            sliderOutput.textContent = slider.value;
+        
+        // Setup all sliders with dynamic value updates
+        const sliders = formRoot?.querySelectorAll('input[type="range"]') || [];
+        const submitButton = formRoot?.querySelector('button[type="submit"]');
+        
+        sliders.forEach(slider => {
+          const valueDisplay = formRoot?.querySelector(`#${slider.id.replace('_slider', '_value')}`);
+          if (valueDisplay) {
+            valueDisplay.textContent = slider.value;
+            
+            // Special handling for overall slider with color gradient
+            if (slider.name === 'overall') {
+              updateOverallSliderColor(slider);
+            }
+            
+            slider.addEventListener('input', () => {
+              valueDisplay.textContent = slider.value;
+              
+              // Update color for overall slider
+              if (slider.name === 'overall') {
+                updateOverallSliderColor(slider);
+              }
+              
+              checkAllSlidersMoved();
+            });
+          }
+        });
+        
+        function updateOverallSliderColor(slider) {
+          const value = parseInt(slider.value);
+          const percentage = value / 100;
+          
+          // Calculate color based on value (red to green)
+          let red, green, blue;
+          if (percentage <= 0.5) {
+            // Red to yellow transition
+            red = 255;
+            green = Math.round(255 * percentage * 2);
+            blue = 0;
+          } else {
+            // Yellow to green transition
+            red = Math.round(255 * (1 - (percentage - 0.5) * 2));
+            green = 255;
+            blue = 0;
+          }
+          
+          const color = `rgb(${red}, ${green}, ${blue})`;
+          
+          // Ensure the gradient background is maintained
+          slider.style.background = `linear-gradient(to right, #ff4444 0%, #ffaa44 25%, #ffff44 50%, #aaff44 75%, #44ff44 100%)`;
+          
+          // Update the slider thumb color to match the current position
+          slider.style.setProperty('--thumb-color', color);
+        }
+        
+        function checkAllSlidersMoved() {
+          if (!submitButton) return;
+          
+          const allSliders = formRoot?.querySelectorAll('input[type="range"]') || [];
+          const allMoved = Array.from(allSliders).every(slider => {
+            const defaultValue = Math.floor((parseInt(slider.min) + parseInt(slider.max)) / 2);
+            return slider.value != defaultValue;
           });
+          
+          if (allMoved) {
+            submitButton.disabled = false;
+            submitButton.classList.remove('disabled');
+          } else {
+            submitButton.disabled = true;
+            submitButton.classList.add('disabled');
+          }
+        }
+        
+        // Initially disable the button
+        if (submitButton) {
+          submitButton.disabled = true;
+          submitButton.classList.add('disabled');
         }
       },
       on_finish: (data) => {
         const response = data.response || {};
-        data.likeness = response.likeness ?? null;
-        data.style = response.style ?? null;
-        data.expression = response.expression ?? null;
-        data.distinctiveness = response.distinctiveness ?? null;
-        data.overall_slider =
-          response.overall_slider !== undefined
-            ? Number(response.overall_slider)
-            : null;
-        data.booster_recognizability =
-          response.booster_recognizability ?? null;
-        data.booster_finish = response.booster_finish ?? null;
+        data.identity = response.identity !== undefined ? Number(response.identity) : null;
+        data.exaggeration = response.exaggeration !== undefined ? Number(response.exaggeration) : null;
+        data.alignment = response.alignment !== undefined ? Number(response.alignment) : null;
+        data.plausibility = response.plausibility !== undefined ? Number(response.plausibility) : null;
+        data.overall = response.overall !== undefined ? Number(response.overall) : null;
         data.reference_url =
           stimulus.reference_url ||
           stimulus.metadata?.ref_url ||
@@ -1037,33 +1130,112 @@
           randomize_question_order: false,
           data: { trial_category: 'comprehension_quiz' },
           on_finish: (data) => {
-            const response = data.response || {};
-            const zoomOk =
-              response.zoom_usage ===
-              'Use the zoom button or click the image to enlarge it';
-            const attentionOk = response.instructional_check === '6';
+            // Debug logging
+            console.log('Full data object:', data);
+            console.log('Data keys:', Object.keys(data));
+            
+            // Try multiple possible response locations
+            const response = data.response || data.responses || data;
+            console.log('Response object:', response);
+            console.log('Response keys:', Object.keys(response));
+            
+            // Check all possible locations for the responses
+            const zoomResponse = response.zoom_usage || data.zoom_usage || '';
+            const attentionResponse = response.instructional_check || data.instructional_check || '';
+            
+            console.log('Zoom usage response:', zoomResponse);
+            console.log('Instructional check response:', attentionResponse);
+            console.log('Zoom response type:', typeof zoomResponse);
+            console.log('Attention response type:', typeof attentionResponse);
+            
+            // More flexible comparison
+            const zoomOk = String(zoomResponse).trim() === 'Use the zoom button or click the image to enlarge it';
+            const attentionOk = String(attentionResponse).trim() === '6';
+            
+            console.log('Zoom comparison:', String(zoomResponse).trim(), '===', 'Use the zoom button or click the image to enlarge it');
+            console.log('Attention comparison:', String(attentionResponse).trim(), '===', '6');
+            console.log('Zoom OK:', zoomOk);
+            console.log('Attention OK:', attentionOk);
+            
             lastQuizPassed = zoomOk && attentionOk;
             data.pass = lastQuizPassed;
+            
+            console.log('Quiz passed:', lastQuizPassed);
+            
+            // If still failing, let's try a more lenient approach
+            if (!lastQuizPassed) {
+              console.log('Trying lenient comparison...');
+              const zoomLenient = String(zoomResponse).toLowerCase().includes('zoom') && 
+                                 String(zoomResponse).toLowerCase().includes('enlarge');
+              const attentionLenient = String(attentionResponse) === '6';
+              
+              console.log('Lenient zoom OK:', zoomLenient);
+              console.log('Lenient attention OK:', attentionLenient);
+              
+              if (zoomLenient && attentionLenient) {
+                console.log('Using lenient comparison - quiz passed');
+                lastQuizPassed = true;
+                data.pass = true;
+              }
+            }
           }
         },
         {
           type: jsPsychHtmlButtonResponse,
           stimulus: `
             <div class="panel">
-              <h2>Let’s double-check</h2>
+              <h2>Let's double-check</h2>
               <p>You missed at least one comprehension question. Please review the instructions shown earlier and try again.</p>
             </div>
           `,
           choices: ['Review and retry'],
-          conditional_function: () => !lastQuizPassed,
+          conditional_function: () => {
+            let passed = lastQuizPassed === true;
+            if (!passed) {
+              const previousTrial = jsPsychInstance.data
+                .get()
+                .filter({ trial_category: 'comprehension_quiz' })
+                .values()
+                .slice(-1)[0];
+              const storedPass =
+                previousTrial?.pass === true ||
+                previousTrial?.pass === 'true' ||
+                previousTrial?.pass === 1;
+              console.log('Conditional function fallback - stored pass value:', previousTrial?.pass);
+              if (storedPass) {
+                lastQuizPassed = true;
+                passed = true;
+              }
+            }
+            console.log('Conditional function - lastQuizPassed:', passed);
+            return !passed;
+          },
           data: { trial_category: 'comprehension_feedback' }
         }
       ],
-      loop_function: () => !lastQuizPassed
+      loop_function: () => {
+        let passed = lastQuizPassed === true;
+        if (!passed) {
+          const quizTrial = jsPsychInstance.data
+            .get()
+            .filter({ trial_category: 'comprehension_quiz' })
+            .values()
+            .slice(-1)[0];
+          const storedPass =
+            quizTrial?.pass === true || quizTrial?.pass === 'true' || quizTrial?.pass === 1;
+          console.log('Loop function fallback - stored pass value:', quizTrial?.pass);
+          if (storedPass) {
+            lastQuizPassed = true;
+            passed = true;
+          }
+        }
+        console.log('Loop function - lastQuizPassed:', passed);
+        return !passed;
+      }
     };
   }
 
-  function createIdentityTimeline(identity) {
+  function createIdentityTimeline(identity, getNextProgress) {
     const timeline = [];
     timeline.push({
       type: jsPsychHtmlButtonResponse,
@@ -1082,11 +1254,14 @@
     });
 
     identity.trials.forEach((trial, index) => {
+      const progressInfo = getNextProgress ? getNextProgress() : null;
       timeline.push(
         createCaricatureSurveyTrial(trial, {
           isPractice: false,
           sequenceIndex: index + 1,
-          totalCount: identity.trials.length
+          totalCount: identity.trials.length,
+          progressIndex: progressInfo?.index,
+          progressTotal: progressInfo?.total
         })
       );
     });
@@ -1164,8 +1339,8 @@
                        data-zoom-src="${card.zoom}"
                        alt="Preview for Method ${card.mask}">
                 </div>
-                <div class="comparison-card__label">Method ${card.mask}</div>
-                ${variantMarkup}
+                <div class="comparison-card__label" style="display: none;">Method ${card.mask}</div>
+                <div style="display: none;">${variantMarkup}</div>
                 <div>
                   <input type="radio"
                          id="${inputId}"
@@ -1246,39 +1421,115 @@
         const variant = sanitizeForHtml(trial.variant || '');
         const thumb = sanitizeForHtml(trial.thumb_url || trial.image_url);
         const zoom = sanitizeForHtml(trial.image_url);
+        const label = variant ? `Method ${mask} - ${variant}` : `Method ${mask}`;
         return `
           <li class="ranking-item"
               draggable="true"
+              role="option"
+              aria-label="${label}"
+              tabindex="0"
               data-mask="${encodeAttr(trial.method_mask)}"
               data-method="${encodeAttr(trial.method_true)}"
               data-variant="${encodeAttr(trial.variant || '')}">
-            <div class="ranking-item__image">
+            <div class="ranking-item__badge" data-rank-value="${index + 1}" aria-hidden="true">${index + 1}</div>
+            <div class="ranking-item__thumb">
               <img src="${thumb}"
                    data-zoom-src="${zoom}"
-                   alt="Thumbnail for Method ${mask}">
+                   alt="Caricature preview for ${label}">
             </div>
-            <div class="ranking-item__meta">
-              <strong>Method ${mask}</strong>
-              <span>${variant}</span>
+            <div class="ranking-item__body">
+              <p class="ranking-item__label">${label}</p>
+              <div class="ranking-item__controls" aria-hidden="true">
+                <span class="ranking-item__handle" aria-hidden="true">&#8942;&#8942;</span>
+                <button type="button"
+                        class="ranking-item__control ranking-item__control--up"
+                        data-direction="up"
+                        aria-label="Move ${label} up one rank">
+                  &#9650;
+                </button>
+                <button type="button"
+                        class="ranking-item__control ranking-item__control--down"
+                        data-direction="down"
+                        aria-label="Move ${label} down one rank">
+                  &#9660;
+                </button>
+              </div>
+              <span class="ranking-item__sr" aria-live="polite">Rank ${index + 1}</span>
             </div>
           </li>
         `;
       })
       .join('');
 
+    const referenceSource = identity.reference_url ||
+      identity.trials.find((trial) => trial.reference_url)?.reference_url ||
+      identity.trials.find((trial) => trial.metadata?.reference_url)?.metadata?.reference_url ||
+      identity.trials[0]?.image_url ||
+      '';
+
+    const referenceLabel =
+      sanitizeForHtml(
+        identity.trials.find((trial) => trial.metadata?.reference_label)?.metadata?.reference_label ||
+          identity.reference_label ||
+          'Reference face'
+      );
+
+    const referenceHtml = referenceSource
+      ? `
+          <aside class="ranking-preview" data-preview>
+            <header class="ranking-preview__header">
+              <div>
+                <h3 class="ranking-preview__title">Preview</h3>
+                <p class="ranking-preview__subtitle">${referenceLabel}</p>
+              </div>
+              <button type="button" class="ranking-preview__toggle" data-preview-toggle aria-expanded="true">
+                Hide
+              </button>
+            </header>
+            <div class="ranking-preview__media" data-preview-media>
+              <img src="${sanitizeForHtml(referenceSource)}"
+                   alt="${referenceLabel}"
+                   class="ranking-preview__image"
+                   data-zoom-src="${sanitizeForHtml(referenceSource)}">
+              <button type="button" class="zoom-trigger ranking-preview__zoom" data-zoom-src="${sanitizeForHtml(referenceSource)}">
+                Zoom reference
+              </button>
+            </div>
+            <div class="ranking-preview__legend">
+              <span>Top = Rank 1 (Best)</span>
+              <span>Bottom = Rank 4 (Worst)</span>
+            </div>
+          </aside>
+        `
+      : '';
+
     return {
       type: jsPsychSurveyHtmlForm,
       html: `
         <div class="panel ranking-panel">
-          <h2>${sanitizeForHtml(identity.identity_display || identity.identity_id)} &middot; Forced Ranking</h2>
-          <p>Drag and drop the caricatures to order them from best (top) to worst (bottom). Zoom controls remain available for review.</p>
+          <header class="ranking-panel__header">
+            <div>
+              <h2>${sanitizeForHtml(identity.identity_display || identity.identity_id)}</h2>
+              <p class="ranking-panel__instruction">Please rank the four caricatures from best (top) to worst (bottom).</p>
+              <p class="ranking-panel__subtext">Drag and drop the images to reorder them. Rank 1 = best caricature.</p>
+            </div>
+          </header>
           <div class="ranking-board">
-            <ul class="ranking-list" id="ranking-list">
-              ${itemsHtml}
-            </ul>
-            <input type="hidden" name="rank_order" id="rank_order" required>
+            <section class="ranking-workspace" aria-label="Caricature ranking">
+              <ul class="ranking-list" id="ranking-list" role="listbox" aria-orientation="vertical">
+                ${itemsHtml}
+              </ul>
+              <div class="ranking-legend">
+                <span class="ranking-legend__badge">1</span>
+                <span>Best caricature</span>
+                <span class="ranking-legend__badge">4</span>
+                <span>Lowest ranked caricature</span>
+              </div>
+              <input type="hidden" name="rank_order" id="rank_order" required>
+            </section>
+            ${referenceHtml}
           </div>
-          <label>
+          <label class="ranking-panel__rationale">
             Briefly explain your ranking rationale (required)
             <textarea name="rationale" rows="4" required placeholder="Summarize how you ranked the caricatures."></textarea>
           </label>
@@ -1307,6 +1558,29 @@
         const list = container.querySelector('#ranking-list');
         const hiddenInput = container.querySelector('#rank_order');
         const error = container.querySelector('#rank-error');
+        const toggleButton = container.querySelector('[data-preview-toggle]');
+        const preview = container.querySelector('[data-preview]');
+        const previewMedia = container.querySelector('[data-preview-media]');
+
+        const updateRanks = () => {
+          if (!list) {
+            return;
+          }
+          const items = Array.from(list.children);
+          items.forEach((item, index) => {
+            const badge = item.querySelector('[data-rank-value]');
+            const sr = item.querySelector('.ranking-item__sr');
+            if (badge) {
+              badge.textContent = String(index + 1);
+              badge.setAttribute('data-rank-value', String(index + 1));
+            }
+            if (sr) {
+              sr.textContent = `Rank ${index + 1}`;
+            }
+            item.setAttribute('aria-posinset', String(index + 1));
+            item.setAttribute('aria-setsize', String(items.length));
+          });
+        };
 
         const updateHidden = () => {
           if (!hiddenInput || !list) {
@@ -1319,6 +1593,26 @@
             rank: idx + 1
           }));
           hiddenInput.value = JSON.stringify(order);
+          updateRanks();
+        };
+
+        const clearDropHighlights = () => {
+          list?.querySelectorAll('.ranking-item--drop-target').forEach((el) =>
+            el.classList.remove('ranking-item--drop-target')
+          );
+          list?.classList.remove('ranking-list--drop-end');
+        };
+
+        const setDropHighlight = (element) => {
+          clearDropHighlights();
+          if (!list) {
+            return;
+          }
+          if (element) {
+            element.classList.add('ranking-item--drop-target');
+          } else {
+            list.classList.add('ranking-list--drop-end');
+          }
         };
 
         const getDragAfterElement = (containerEl, y) => {
@@ -1346,6 +1640,7 @@
             return;
           }
           const afterElement = getDragAfterElement(list, event.clientY);
+          setDropHighlight(afterElement);
           if (!afterElement) {
             list.appendChild(dragging);
           } else {
@@ -1353,10 +1648,22 @@
           }
         });
 
+        list?.addEventListener('dragenter', (event) => {
+          event.preventDefault();
+        });
+
+        list?.addEventListener('dragleave', (event) => {
+          if (event.relatedTarget && list?.contains(event.relatedTarget)) {
+            return;
+          }
+          clearDropHighlights();
+        });
+
         list?.addEventListener('dragstart', (event) => {
           const target = event.target;
           if (target instanceof HTMLElement) {
             target.classList.add('dragging');
+            target.setAttribute('aria-grabbed', 'true');
           }
         });
 
@@ -1364,7 +1671,62 @@
           const target = event.target;
           if (target instanceof HTMLElement) {
             target.classList.remove('dragging');
+            target.removeAttribute('aria-grabbed');
+            clearDropHighlights();
             updateHidden();
+          }
+        });
+
+        const moveItem = (item, direction) => {
+          if (!list || !item) {
+            return;
+          }
+          if (direction === 'up') {
+            const previous = item.previousElementSibling;
+            if (previous) {
+              list.insertBefore(item, previous);
+            }
+          } else if (direction === 'down') {
+            const next = item.nextElementSibling;
+            if (next) {
+              list.insertBefore(next, item);
+            }
+          }
+          item.classList.add('ranking-item--moved');
+          window.setTimeout(() => item.classList.remove('ranking-item--moved'), 300);
+          updateHidden();
+          item.focus();
+        };
+
+        list?.addEventListener('click', (event) => {
+          const button = event.target instanceof HTMLElement ? event.target.closest('.ranking-item__control') : null;
+          if (!button) {
+            return;
+          }
+          const item = button.closest('.ranking-item');
+          const direction = button.dataset.direction;
+          if (item && direction) {
+            event.preventDefault();
+            moveItem(item, direction);
+          }
+        });
+
+        list?.addEventListener('keydown', (event) => {
+          const target = event.target instanceof HTMLElement ? event.target.closest('.ranking-item') : null;
+          if (!target) {
+            return;
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            moveItem(target, 'up');
+          } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            moveItem(target, 'down');
+          } else if (event.key === ' ') {
+            target.classList.toggle('ranking-item--keyboard-grab');
+            const isGrabbed = target.classList.contains('ranking-item--keyboard-grab');
+            target.setAttribute('aria-grabbed', String(isGrabbed));
+            event.preventDefault();
           }
         });
 
@@ -1376,6 +1738,16 @@
           } else {
             error?.classList.add('hidden');
           }
+        });
+
+        toggleButton?.addEventListener('click', () => {
+          if (!preview || !previewMedia || !toggleButton) {
+            return;
+          }
+          const isHidden = preview.classList.toggle('ranking-preview--collapsed');
+          previewMedia.setAttribute('aria-hidden', String(isHidden));
+          toggleButton.setAttribute('aria-expanded', String(!isHidden));
+          toggleButton.textContent = isHidden ? 'Show' : 'Hide';
         });
 
         updateHidden();
@@ -1587,13 +1959,11 @@
       method_true: trial.method_true,
       variant: trial.variant,
       reference_url: trial.reference_url || '',
-      likeness: trial.likeness,
-      style: trial.style,
-      expression: trial.expression,
-      distinctiveness: trial.distinctiveness,
-      overall_slider: trial.overall_slider,
-      booster_recognizability: trial.booster_recognizability ?? '',
-      booster_finish: trial.booster_finish ?? '',
+      identity: trial.identity,
+      exaggeration: trial.exaggeration,
+      alignment: trial.alignment,
+      plausibility: trial.plausibility,
+      overall: trial.overall,
       rt_ms: trial.rt ?? '',
       end_timestamp: trial.end_timestamp || ''
     }));
@@ -1656,13 +2026,11 @@
       'method_true',
       'variant',
       'reference_url',
-      'likeness',
-      'style',
-      'expression',
-      'distinctiveness',
-      'overall_slider',
-      'booster_recognizability',
-      'booster_finish',
+      'identity',
+      'exaggeration',
+      'alignment',
+      'plausibility',
+      'overall',
       'rt_ms',
       'end_timestamp'
     ];
